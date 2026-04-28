@@ -232,6 +232,25 @@ async def search_attractions(
     return attractions[:10]
 
 
+async def get_airport(city_name: str) -> Optional[dict]:
+    """
+    Resolves a city name to the first matching airport via /v1/flights/locations.
+    Returns a dict with 'code' (e.g. 'SJC.AIRPORT') used by the flight search endpoint.
+    Returns None if no airport is found for the city.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            f"{BASE_URL}/v1/flights/locations",
+            params={"name": city_name, "locale": "en-gb"},
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        results = resp.json()
+        if isinstance(results, list) and results:
+            return results[0]
+        return None
+
+
 async def search_flights(
     departure_city: str,
     arrival_city: str,
@@ -241,46 +260,50 @@ async def search_flights(
     children: int = 0,
 ) -> dict:
     """
-    Searches for flights via the Booking.com RapidAPI.
-    Automatically selects the one-way or round-trip endpoint based on
-    whether return_date is provided.
+    Searches for flights via the Booking.com RapidAPI using /v1/flights/search.
 
     Steps:
-      1. Resolves both cities to dest_ids via get_destination()
-      2. Builds query params with passenger counts
-      3. Calls the appropriate flight search endpoint
+      1. Resolves both cities to airport codes via get_airport() (/v1/flights/locations)
+      2. Builds query params with passenger counts, cabin class, and flight type
+      3. Calls /v1/flights/search — single endpoint handles both one-way and round-trip
+         via the flight_type param (ONEWAY or ROUNDTRIP)
 
     Returns the raw API response dict, or an error dict if cities can't be resolved.
+    Results are under the 'flightOffers' key in the response.
     """
-    from_dest = await get_destination(departure_city)
-    to_dest = await get_destination(arrival_city)
+    from_airport = await get_airport(departure_city)
+    to_airport = await get_airport(arrival_city)
 
-    if not from_dest or not to_dest:
-        return {"flights": [], "message": "Could not resolve city destinations"}
+    if not from_airport or not to_airport:
+        return {"flightOffers": [], "message": "Could not resolve city airports"}
 
-    from_id = from_dest.get("dest_id", "")
-    to_id = to_dest.get("dest_id", "")
+    # The flight search requires the full code format: e.g. "SJC.AIRPORT"
+    from_code = from_airport.get("code", "")
+    to_code = to_airport.get("code", "")
+
+    flight_type = "ROUNDTRIP" if return_date else "ONEWAY"
 
     params = {
-        "from_id": f"city:{from_id}",
-        "to_id": f"city:{to_id}",
-        "departure_date": departure_date,
+        "from_code": from_code,
+        "to_code": to_code,
+        "depart_date": departure_date,
         "adults": adults,
+        "flight_type": flight_type,
+        "cabin_class": "ECONOMY",
+        "order_by": "BEST",
+        "currency": "USD",
         "locale": "en-gb",
-        "currency_code": "USD",
     }
 
     if children > 0:
         params["children"] = children
 
-    # Choose one-way vs round-trip endpoint
-    endpoint = "roundtrip" if return_date else "oneway"
     if return_date:
         params["return_date"] = return_date
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.get(
-            f"{BASE_URL}/v1/flights/search-{endpoint}",
+            f"{BASE_URL}/v1/flights/search",
             params=params,
             headers=_headers(),
         )
