@@ -67,6 +67,7 @@ async def search_hotels(
     children_ages: str = "",
     budget_max: Optional[float] = None,
     has_pool: bool = False,
+    is_family_friendly: bool = False,
     star_rating: Optional[int] = None,
 ) -> list:
     """
@@ -75,7 +76,7 @@ async def search_hotels(
     Steps:
       1. Resolves the city to a dest_id via get_destination()
       2. Builds query params including occupancy (adults + children with ages)
-      3. Appends Booking.com category filter IDs for pool and star rating
+      3. Appends Booking.com category filter IDs for pool, family rooms, and star rating
       4. Calls the hotel search endpoint
       5. Applies a client-side budget filter (the API returns min_total_price
          per stay, so we filter after receiving results)
@@ -114,10 +115,14 @@ async def search_hotels(
             params["children_ages"] = children_ages
 
     # Build the Booking.com categories_filter_ids string
-    # hotelfacility::11 = swimming pool, class::N = N-star rating
+    # hotelfacility::11 = swimming pool
+    # hotelfacility::28 = family rooms (maps our is_family_friendly flag)
+    # class::N          = N-star rating
     filter_ids = []
     if has_pool:
         filter_ids.append("hotelfacility::11")
+    if is_family_friendly:
+        filter_ids.append("hotelfacility::28")
     if star_rating:
         filter_ids.append(f"class::{star_rating}")
     if filter_ids:
@@ -142,51 +147,78 @@ async def search_hotels(
     return hotels[:20]
 
 
+THEME_PARK_KEYWORDS = {
+    "theme park", "amusement park", "disney", "universal", "seaworld",
+    "busch gardens", "six flags", "legoland", "adventure park",
+}
+
+
 async def search_attractions(
     city: str,
     is_theme_park: Optional[bool] = None,
     budget_max: Optional[float] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> list:
     """
     Searches for attractions and activities near a city via the Booking.com RapidAPI.
 
     Steps:
-      1. Resolves the city to lat/lng coordinates via get_destination()
-      2. Calls the attraction search endpoint with those coordinates
+      1. Resolves the city to dest_id + lat/lng via get_destination()
+      2. Calls /v1/attractions/search with the required dest_id, lat/lng, and dates
       3. Optionally filters results to theme parks only (for bundle creation)
       4. Optionally filters by price per person
 
+    start_date / end_date default to 30 days from today if not supplied.
+    Results are returned under the 'products' key in the API response.
     Returns up to 10 results. Returns an empty list if the city can't be
     resolved, coordinates are missing, or the API fails.
     """
+    from datetime import date, timedelta
+
     dest = await get_destination(city)
     if not dest:
         return []
 
     latitude = dest.get("latitude")
     longitude = dest.get("longitude")
+    dest_id = dest.get("dest_id") or dest.get("id", "")
     if not latitude or not longitude:
         return []
 
+    # The attractions API requires explicit date range — default to next 30 days
+    today = date.today()
+    s_date = start_date or today.isoformat()
+    e_date = end_date or (today + timedelta(days=30)).isoformat()
+
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.get(
-            f"{BASE_URL}/v1/attraction/search",
-            params={"latitude": latitude, "longitude": longitude, "locale": "en-gb"},
+            f"{BASE_URL}/v1/attractions/search",
+            params={
+                "dest_id": dest_id,
+                "latitude": latitude,
+                "longitude": longitude,
+                "locale": "en-gb",
+                "currency": "USD",
+                "order_by": "trending",
+                "start_date": s_date,
+                "end_date": e_date,
+            },
             headers=_headers(),
         )
         resp.raise_for_status()
         data = resp.json()
 
-    # The API nests results under results.attractions
-    attractions = data.get("results", {}).get("attractions", [])
+    # API returns results under the 'products' key
+    attractions = data.get("products", [])
 
-    # Filter for theme parks by checking the name and subcategory fields
+    # Filter for theme parks by scanning name and description for known keywords
     if is_theme_park is True:
-        attractions = [
-            a for a in attractions
-            if "theme park" in a.get("name", "").lower()
-            or "theme" in str(a.get("subcategory", [])).lower()
-        ]
+        def _is_theme_park(a: dict) -> bool:
+            text = (a.get("name", "") + " " + a.get("shortDescription", "")).lower()
+            return any(kw in text for kw in THEME_PARK_KEYWORDS)
+
+        attractions = [a for a in attractions if _is_theme_park(a)]
 
     # representativePrice.publicAmount is the per-person price shown on Booking.com
     if budget_max is not None:

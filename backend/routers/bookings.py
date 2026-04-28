@@ -52,8 +52,27 @@ def create_booking(
     """
     if booking.adults < 1:
         raise HTTPException(status_code=400, detail="At least 1 adult passenger is required")
-    if booking.adults + booking.children > 10:
-        raise HTTPException(status_code=400, detail="Maximum 10 passengers per booking")
+
+    # A booking must reference at least a hotel or a bundle — an empty booking
+    # with all null IDs is meaningless and blocked per Phase 1 AC3 TC.02
+    if not booking.hotel_id and not booking.bundle_id:
+        raise HTTPException(
+            status_code=400,
+            detail="A booking must include at least a hotel or a bundle selection",
+        )
+
+    # Look up the agency so we can apply its tenant-specific limits
+    agency = db.query(models.Agency).filter(models.Agency.agency_id == booking.agency_id).first()
+    if not agency:
+        raise HTTPException(status_code=404, detail="Agency not found")
+
+    # Enforce the agency's passenger cap (Phase 1 AC3 US3: per-agency passenger limit)
+    agency_max_passengers = agency.max_passengers or 10
+    if booking.adults + booking.children > agency_max_passengers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This agency allows a maximum of {agency_max_passengers} passengers per booking",
+        )
 
     # Verify bundle availability if the user selected a bundle
     if booking.bundle_id:
@@ -66,20 +85,33 @@ def create_booking(
             # Sold-out bundles block checkout per Phase 1 AC2 for User Story 2
             raise HTTPException(
                 status_code=400,
-                detail="Selected bundle is not available for the chosen travel dates",
+                detail="Selected bundle is not available — it is sold out",
+            )
+        # If the bundle has a travel date window, the booking's check-in must fall within it
+        if bundle.start_date and booking.check_in_date < bundle.start_date:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bundle is not available before {bundle.start_date}",
+            )
+        if bundle.end_date and booking.check_in_date > bundle.end_date:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bundle is not available after {bundle.end_date}",
             )
 
-    # Count active (non-cancelled) bookings for this user under this agency
-    # This enforces the per-agency booking limit from Phase 1 AC3
+    # Count active (non-cancelled) bookings for this user under this agency.
+    # Use the agency's max_bundles_per_user limit if set, otherwise fall back
+    # to the global MAX_ACTIVE_BOOKINGS constant (Phase 1 AC3 US2 per-agency limit).
+    agency_booking_limit = agency.max_bundles_per_user or MAX_ACTIVE_BOOKINGS
     active_count = db.query(models.Booking).filter(
         models.Booking.user_id == booking.user_id,
         models.Booking.agency_id == booking.agency_id,
         models.Booking.status != "Cancelled",
     ).count()
-    if active_count >= MAX_ACTIVE_BOOKINGS:
+    if active_count >= agency_booking_limit:
         raise HTTPException(
             status_code=400,
-            detail=f"Maximum {MAX_ACTIVE_BOOKINGS} active bookings per user",
+            detail=f"Maximum {agency_booking_limit} active bookings per user for this agency",
         )
 
     db_booking = models.Booking(

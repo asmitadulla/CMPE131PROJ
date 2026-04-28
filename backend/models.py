@@ -149,6 +149,8 @@ class Bundle(Base):
     price = Column(Float, nullable=False)
     includes_theme_park = Column(Boolean, default=False)
     is_available = Column(Boolean, default=True)  # set to False for sold-out bundles
+    start_date = Column(String(50), nullable=True)   # earliest valid check-in (YYYY-MM-DD)
+    end_date = Column(String(50), nullable=True)     # latest valid check-in (YYYY-MM-DD)
 
     hotel = relationship("Hotel", back_populates="bundles")
     activity = relationship("Activity", back_populates="bundles")

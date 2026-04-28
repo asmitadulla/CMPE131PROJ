@@ -30,6 +30,8 @@ async def search_attractions(
     city: str = Query(..., description="City to search for attractions"),
     is_theme_park: Optional[bool] = Query(None, description="Filter: theme parks only (for bundle filtering)"),
     budget_max: Optional[float] = Query(None, description="Maximum price per person (USD)"),
+    start_date: Optional[str] = Query(None, description="Start of availability window (YYYY-MM-DD). Defaults to today."),
+    end_date: Optional[str] = Query(None, description="End of availability window (YYYY-MM-DD). Defaults to 30 days from today."),
     db: Session = Depends(get_db),
 ):
     """
@@ -45,6 +47,8 @@ async def search_attractions(
             city=city,
             is_theme_park=is_theme_park,
             budget_max=budget_max,
+            start_date=start_date,
+            end_date=end_date,
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Attractions service unavailable: {str(e)}")
@@ -65,5 +69,7 @@ async def search_attractions(
         "filter_applied": {
             "is_theme_park": is_theme_park,
             "budget_max": budget_max,
+            "start_date": start_date,
+            "end_date": end_date,
         },
     }

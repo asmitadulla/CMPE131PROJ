@@ -130,6 +130,8 @@ class BundleCreate(BaseModel):
     description: Optional[str] = None
     price: float
     includes_theme_park: bool = False
+    start_date: Optional[str] = None  # earliest valid check-in (YYYY-MM-DD)
+    end_date: Optional[str] = None    # latest valid check-in (YYYY-MM-DD)
 
 class BundleResponse(BaseModel):
     """Bundle record returned to the client."""
@@ -138,8 +140,11 @@ class BundleResponse(BaseModel):
     activity_id: int
     agency_id: int
     name: str
+    description: Optional[str]
     price: float
     includes_theme_park: bool
     is_available: bool  # False means sold out — client should block checkout
+    start_date: Optional[str]
+    end_date: Optional[str]
 
     model_config = {"from_attributes": True}
