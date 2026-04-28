@@ -1,0 +1,14 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - db_data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:////app/data/travel_saas.db
+
+volumes:
+  db_data:

@@ -1,0 +1,41 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from database import engine
+import models
+from middleware.tenant import TenantMiddleware
+from routers import auth, hotels, flights, attractions, bookings
+
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Travel Agent SaaS Platform",
+    description=(
+        "Multi-tenant travel booking platform — Scenario #7: The Family Vacationist.\n\n"
+        "Supports multi-passenger search (adults + children), family-friendly hotel filters "
+        "(pool, amenities), bundle filtering (hotel + theme park tickets), and full booking "
+        "lifecycle management (Pending → Confirmed → Cancelled).\n\n"
+        "Pass `X-Agency-ID` header on all non-auth requests for tenant isolation."
+    ),
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(TenantMiddleware)
+
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(hotels.router, prefix="/api/v1/hotels", tags=["Hotels"])
+app.include_router(flights.router, prefix="/api/v1/flights", tags=["Flights"])
+app.include_router(attractions.router, prefix="/api/v1/attractions", tags=["Attractions"])
+app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["Bookings"])
+
+
+@app.get("/", tags=["Health"])
+def root():
+    return {"status": "running", "project": "Travel Agent SaaS Platform", "docs": "/docs"}
