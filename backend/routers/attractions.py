@@ -1,3 +1,21 @@
+# =============================================================================
+# routers/attractions.py
+#
+# Attractions/activities search endpoint — Group 1 Search API.
+#
+# Endpoint:
+#   GET /api/v1/attractions/search
+#
+# Calls the Booking.com API via services/rapidapi.py and returns a list of
+# attractions near the specified city. Returns at least 3 popular activities
+# as required by the project spec.
+#
+# Supports the Family Vacationist bundle scenario:
+#   - is_theme_park=true filters results to theme parks only
+#   - budget_max filters by per-person price
+#   - Results are used to build hotel + theme park ticket bundles
+# =============================================================================
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -15,11 +33,13 @@ async def search_attractions(
     db: Session = Depends(get_db),
 ):
     """
-    Search attractions/activities via Booking.com (RapidAPI).
+    Searches for attractions and activities via the Booking.com RapidAPI.
 
-    Returns at least 3 popular activities. Supports theme park filter
-    for bundle creation (hotel + theme park tickets).
+    Returns up to 10 results. Use is_theme_park=true to filter specifically
+    for theme parks when building hotel + theme park ticket bundles.
+    Returns "No Results Found" if no attractions match the criteria.
     """
+    # --- Call the RapidAPI service ---
     try:
         results = await rapidapi.search_attractions(
             city=city,
@@ -29,6 +49,7 @@ async def search_attractions(
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Attractions service unavailable: {str(e)}")
 
+    # Return a clear "No Results Found" message instead of a plain empty array
     if not results:
         return {
             "results": [],

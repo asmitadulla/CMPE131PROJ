@@ -1,3 +1,21 @@
+# =============================================================================
+# services/rapidapi.py
+#
+# All outbound calls to the Booking.com API via RapidAPI live here.
+# Routers never call the external API directly — they always go through
+# this service layer, which keeps API logic in one place and makes it
+# easy to swap out the provider later if needed.
+#
+# Functions:
+#   get_destination()    — Resolves a city name to a Booking.com dest_id
+#   search_hotels()      — Searches hotels with occupancy + family filters
+#   search_attractions() — Searches attractions, optionally filtered to theme parks
+#   search_flights()     — Searches one-way or round-trip flights
+#
+# All functions are async and use httpx for non-blocking HTTP requests,
+# which is required for FastAPI's async performance model.
+# =============================================================================
+
 import httpx
 import os
 from typing import Optional
@@ -8,10 +26,11 @@ load_dotenv()
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "booking-com.p.rapidapi.com"
 BASE_URL = f"https://{RAPIDAPI_HOST}"
-TIMEOUT = 30
+TIMEOUT = 30  # seconds before giving up on an external API call
 
 
 def _headers():
+    """Returns the auth headers required by every RapidAPI request."""
     return {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": RAPIDAPI_HOST,
@@ -19,7 +38,13 @@ def _headers():
 
 
 async def get_destination(city_name: str) -> Optional[dict]:
-    """Resolve a city name to a Booking.com dest_id."""
+    """
+    Resolves a human-readable city name (e.g. "Orlando") into a Booking.com
+    destination object that contains dest_id, dest_type, latitude, and longitude.
+    These values are required by the hotel and attraction search endpoints.
+
+    Returns the first match from the API, or None if no results.
+    """
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.get(
             f"{BASE_URL}/v1/hotels/locations",
@@ -45,8 +70,18 @@ async def search_hotels(
     star_rating: Optional[int] = None,
 ) -> list:
     """
-    Search hotels via Booking.com RapidAPI.
-    Applies occupancy (adults + children), pool filter, star rating, and budget cap.
+    Searches for hotels via the Booking.com RapidAPI.
+
+    Steps:
+      1. Resolves the city to a dest_id via get_destination()
+      2. Builds query params including occupancy (adults + children with ages)
+      3. Appends Booking.com category filter IDs for pool and star rating
+      4. Calls the hotel search endpoint
+      5. Applies a client-side budget filter (the API returns min_total_price
+         per stay, so we filter after receiving results)
+
+    Returns up to 20 results sorted by popularity.
+    Returns an empty list if the city can't be resolved or the API fails.
     """
     dest = await get_destination(city)
     if not dest:
@@ -71,15 +106,18 @@ async def search_hotels(
         "units": "imperial",
     }
 
+    # Only add children params if there are children — some API versions reject
+    # children_number=0 as invalid
     if children > 0:
         params["children_number"] = children
         if children_ages:
             params["children_ages"] = children_ages
 
-    # Build amenity/class filter IDs
+    # Build the Booking.com categories_filter_ids string
+    # hotelfacility::11 = swimming pool, class::N = N-star rating
     filter_ids = []
     if has_pool:
-        filter_ids.append("hotelfacility::11")  # Booking.com pool facility ID
+        filter_ids.append("hotelfacility::11")
     if star_rating:
         filter_ids.append(f"class::{star_rating}")
     if filter_ids:
@@ -96,7 +134,8 @@ async def search_hotels(
 
     hotels = data.get("result", [])
 
-    # Apply budget filter client-side (API returns min_total_price per stay)
+    # Budget filter is applied here because the API doesn't support a max-price
+    # query param — min_total_price is the cheapest available room for the stay
     if budget_max is not None:
         hotels = [h for h in hotels if float(h.get("min_total_price", 0) or 0) <= budget_max]
 
@@ -109,8 +148,16 @@ async def search_attractions(
     budget_max: Optional[float] = None,
 ) -> list:
     """
-    Search attractions via Booking.com RapidAPI.
-    Optionally filter for theme parks to support bundle creation.
+    Searches for attractions and activities near a city via the Booking.com RapidAPI.
+
+    Steps:
+      1. Resolves the city to lat/lng coordinates via get_destination()
+      2. Calls the attraction search endpoint with those coordinates
+      3. Optionally filters results to theme parks only (for bundle creation)
+      4. Optionally filters by price per person
+
+    Returns up to 10 results. Returns an empty list if the city can't be
+    resolved, coordinates are missing, or the API fails.
     """
     dest = await get_destination(city)
     if not dest:
@@ -130,9 +177,10 @@ async def search_attractions(
         resp.raise_for_status()
         data = resp.json()
 
-    # Response shape: {"results": {"attractions": [...]}}
+    # The API nests results under results.attractions
     attractions = data.get("results", {}).get("attractions", [])
 
+    # Filter for theme parks by checking the name and subcategory fields
     if is_theme_park is True:
         attractions = [
             a for a in attractions
@@ -140,6 +188,7 @@ async def search_attractions(
             or "theme" in str(a.get("subcategory", [])).lower()
         ]
 
+    # representativePrice.publicAmount is the per-person price shown on Booking.com
     if budget_max is not None:
         attractions = [
             a for a in attractions
@@ -160,7 +209,16 @@ async def search_flights(
     children: int = 0,
 ) -> dict:
     """
-    Search flights via Booking.com RapidAPI (one-way or round-trip).
+    Searches for flights via the Booking.com RapidAPI.
+    Automatically selects the one-way or round-trip endpoint based on
+    whether return_date is provided.
+
+    Steps:
+      1. Resolves both cities to dest_ids via get_destination()
+      2. Builds query params with passenger counts
+      3. Calls the appropriate flight search endpoint
+
+    Returns the raw API response dict, or an error dict if cities can't be resolved.
     """
     from_dest = await get_destination(departure_city)
     to_dest = await get_destination(arrival_city)
@@ -183,6 +241,7 @@ async def search_flights(
     if children > 0:
         params["children"] = children
 
+    # Choose one-way vs round-trip endpoint
     endpoint = "roundtrip" if return_date else "oneway"
     if return_date:
         params["return_date"] = return_date

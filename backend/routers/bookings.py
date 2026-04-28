@@ -1,3 +1,23 @@
+# =============================================================================
+# routers/bookings.py
+#
+# Booking persistence and management endpoints — Group 2 Booking & Persistence APIs.
+#
+# All endpoints require a valid JWT token (Authorization: Bearer <token>).
+# Get a token from POST /api/v1/auth/login or /signup.
+#
+# Endpoints:
+#   POST   /api/v1/bookings/                      — Create a booking (Book Now)
+#   GET    /api/v1/bookings/user/{user_id}         — Get all bookings for a user (dashboard)
+#   GET    /api/v1/bookings/{booking_id}           — Get a single booking by ID
+#   PATCH  /api/v1/bookings/{booking_id}/status    — Update booking status
+#   PATCH  /api/v1/bookings/{booking_id}/cancel    — Cancel a booking
+#
+# Booking lifecycle:  Pending → Confirmed → Cancelled
+# Records are never deleted — cancelled bookings stay in the DB for audit history.
+# Tenant isolation is enforced by filtering queries on both user_id AND agency_id.
+# =============================================================================
+
 from fastapi import APIRouter, Depends, HTTPException, Security
 from sqlalchemy.orm import Session
 from typing import List
@@ -9,26 +29,33 @@ from routers.auth import get_current_user
 router = APIRouter()
 
 VALID_STATUSES = {"Pending", "Confirmed", "Cancelled"}
-MAX_ACTIVE_BOOKINGS = 5
+MAX_ACTIVE_BOOKINGS = 5  # per user, per agency — matches Phase 1 AC3 boundary
 
 
 @router.post("/", response_model=BookingResponse, summary="Create a booking (Book Now)")
 def create_booking(
     booking: BookingCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),  # requires valid JWT
 ):
     """
-    Persist a new booking when the user clicks 'Book Now'.
-    Requires JWT. Starts in Pending status. Enforces passenger count,
-    bundle availability, and per-user booking limits (tenant-scoped).
+    Persists a new booking to the database when the user clicks 'Book Now'.
+    This is the core persistence layer of the application.
+
+    Validations (Phase 1 Acceptance Criteria):
+      - At least 1 adult passenger required
+      - Total passengers cannot exceed 10
+      - If a bundle is selected, it must exist and be marked as available
+      - User cannot exceed MAX_ACTIVE_BOOKINGS non-cancelled bookings per agency
+
+    New bookings always start with status = "Pending".
     """
     if booking.adults < 1:
         raise HTTPException(status_code=400, detail="At least 1 adult passenger is required")
     if booking.adults + booking.children > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 passengers per booking")
 
-    # Verify bundle availability if selected
+    # Verify bundle availability if the user selected a bundle
     if booking.bundle_id:
         bundle = db.query(models.Bundle).filter(
             models.Bundle.bundle_id == booking.bundle_id
@@ -36,12 +63,14 @@ def create_booking(
         if not bundle:
             raise HTTPException(status_code=404, detail="Bundle not found")
         if not bundle.is_available:
+            # Sold-out bundles block checkout per Phase 1 AC2 for User Story 2
             raise HTTPException(
                 status_code=400,
                 detail="Selected bundle is not available for the chosen travel dates",
             )
 
-    # Enforce per-user active booking limit (agency-scoped for tenant isolation)
+    # Count active (non-cancelled) bookings for this user under this agency
+    # This enforces the per-agency booking limit from Phase 1 AC3
     active_count = db.query(models.Booking).filter(
         models.Booking.user_id == booking.user_id,
         models.Booking.agency_id == booking.agency_id,
@@ -78,11 +107,12 @@ def get_user_bookings(
     user_id: int,
     agency_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),  # requires valid JWT
 ):
     """
-    User dashboard: fetch all bookings for a user, scoped to their agency.
-    Requires JWT. Tenant isolation enforced — users only see their own agency's bookings.
+    Returns all bookings for a user — powers the User Dashboard.
+    Filters by both user_id AND agency_id to enforce tenant isolation:
+    users from Agency A cannot see bookings belonging to Agency B.
     """
     return db.query(models.Booking).filter(
         models.Booking.user_id == user_id,
@@ -94,9 +124,9 @@ def get_user_bookings(
 def get_booking(
     booking_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),  # requires valid JWT
 ):
-    """Requires JWT."""
+    """Returns the full details of a single booking record."""
     booking = db.query(models.Booking).filter(models.Booking.booking_id == booking_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
@@ -108,10 +138,12 @@ def update_booking_status(
     booking_id: int,
     status_update: BookingStatusUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),  # requires valid JWT
 ):
     """
-    Manage booking lifecycle: Pending → Confirmed → Cancelled. Requires JWT.
+    Manages the booking lifecycle by updating the status field.
+    Valid transitions: Pending → Confirmed → Cancelled.
+    Rejects any status value not in the allowed set.
     """
     if status_update.status not in VALID_STATUSES:
         raise HTTPException(
@@ -133,11 +165,12 @@ def update_booking_status(
 def cancel_booking(
     booking_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),  # requires valid JWT
 ):
     """
-    Sets booking status to Cancelled without deleting the record.
-    Preserves booking history for auditing. Requires JWT.
+    Cancels a booking by setting its status to 'Cancelled'.
+    The record is NOT deleted — it remains in the database for booking
+    history and auditing purposes, accessible from the User Dashboard.
     """
     booking = db.query(models.Booking).filter(models.Booking.booking_id == booking_id).first()
     if not booking:

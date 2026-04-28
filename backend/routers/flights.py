@@ -1,3 +1,22 @@
+# =============================================================================
+# routers/flights.py
+#
+# Flight search endpoint — Group 1 Search API.
+#
+# Endpoint:
+#   GET /api/v1/flights/search
+#
+# Calls the Booking.com API via services/rapidapi.py and returns available
+# flights between two cities. Supports multi-passenger search for families
+# (adults + children). Automatically selects one-way or round-trip based
+# on whether return_date is provided.
+#
+# Validation enforces Phase 1 acceptance criteria:
+#   - At least 1 adult required to proceed
+#   - Maximum 9 passengers per booking (standard airline limit)
+#   - Returns error message if cities cannot be resolved
+# =============================================================================
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -6,7 +25,7 @@ from services import rapidapi
 
 router = APIRouter()
 
-MAX_PASSENGERS = 9  # Standard airline limit
+MAX_PASSENGERS = 9  # Standard airline booking limit per reservation
 
 
 @router.get("/search", summary="Search flights for multi-passenger families")
@@ -21,11 +40,14 @@ async def search_flights(
     db: Session = Depends(get_db),
 ):
     """
-    Search flights via Booking.com (RapidAPI).
+    Searches for flights via the Booking.com RapidAPI.
 
-    Supports multi-passenger search for families. At least 1 adult required.
-    Omit return_date for one-way; include it for round-trip.
+    Omit return_date for a one-way search.
+    Include return_date for a round-trip search.
+    Default occupancy is 2 adults + 2 children to match the Family Vacationist scenario.
     """
+    # --- Input validation ---
+
     if adults < 1:
         raise HTTPException(status_code=400, detail="At least 1 adult passenger is required")
     if adults + children > MAX_PASSENGERS:
@@ -34,6 +56,7 @@ async def search_flights(
             detail=f"Maximum {MAX_PASSENGERS} passengers per flight booking",
         )
 
+    # --- Call the RapidAPI service ---
     try:
         results = await rapidapi.search_flights(
             departure_city=departure_city,

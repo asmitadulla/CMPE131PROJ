@@ -1,3 +1,25 @@
+# =============================================================================
+# routers/hotels.py
+#
+# Hotel search endpoint — Group 1 Search API.
+#
+# Endpoint:
+#   GET /api/v1/hotels/search
+#
+# Calls the Booking.com API via services/rapidapi.py and returns hotel
+# results filtered by family-specific criteria defined in Phase 1:
+#   - Multi-passenger occupancy (adults + children with ages)
+#   - Pool filter (has_pool=true)
+#   - Star rating filter
+#   - Budget cap (max total price for the stay)
+#
+# Validation enforces Phase 1 acceptance criteria:
+#   - At least 1 adult required
+#   - Max 10 total passengers
+#   - Child ages must be non-negative integers
+#   - Returns "No Results Found" when API returns empty results
+# =============================================================================
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -24,12 +46,15 @@ async def search_hotels(
     db: Session = Depends(get_db),
 ):
     """
-    Search hotels via Booking.com (RapidAPI).
+    Searches hotels via the Booking.com RapidAPI with family-specific filters.
 
-    Supports multi-passenger occupancy (adults + children), family-specific
-    filters (pool, family-friendly), star rating, and budget cap — matching
-    the Phase 1 acceptance criteria for the Family Vacationist scenario.
+    Supports the Family Vacationist scenario (Scenario #7):
+    - Default occupancy is 2 adults + 2 children aged 9 and 16
+    - has_pool and is_family_friendly target family-friendly accommodations
+    - budget_max enforces the user's total stay budget constraint
     """
+    # --- Input validation (Phase 1 Acceptance Criteria) ---
+
     if adults < 1:
         raise HTTPException(status_code=400, detail="At least 1 adult passenger is required")
     if adults + children > MAX_PASSENGERS:
@@ -38,7 +63,7 @@ async def search_hotels(
             detail=f"Maximum {MAX_PASSENGERS} total passengers per search",
         )
 
-    # Validate children_ages if children provided
+    # Validate each child's age is a non-negative integer
     if children > 0 and children_ages:
         for age_str in children_ages.split(","):
             try:
@@ -51,6 +76,7 @@ async def search_hotels(
                     detail=f"Invalid child age '{age_str.strip()}'. Ages must be non-negative integers.",
                 )
 
+    # --- Call the RapidAPI service ---
     try:
         results = await rapidapi.search_hotels(
             city=city,
@@ -66,6 +92,7 @@ async def search_hotels(
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Hotel search service unavailable: {str(e)}")
 
+    # Return a clear "No Results Found" message instead of an empty array
     if not results:
         return {
             "results": [],

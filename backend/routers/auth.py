@@ -1,3 +1,22 @@
+# =============================================================================
+# routers/auth.py
+#
+# Handles all authentication and agency (tenant) registration.
+#
+# Endpoints:
+#   POST /api/v1/auth/agency  — Register a new travel agency (tenant)
+#   POST /api/v1/auth/signup  — Register a new user under an agency
+#   POST /api/v1/auth/login   — Login and receive a JWT token
+#
+# Also exports get_current_user(), a reusable FastAPI dependency that other
+# routers (e.g. bookings.py) use to protect their endpoints. It reads the
+# Bearer token from the Authorization header, decodes it, and returns the
+# matching User from the database.
+#
+# Passwords are hashed with bcrypt via passlib. Tokens are signed HS256 JWTs
+# via python-jose and expire after 24 hours.
+# =============================================================================
+
 from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -15,7 +34,7 @@ load_dotenv()
 router = APIRouter()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-bearer_scheme = HTTPBearer()
+bearer_scheme = HTTPBearer()  # tells FastAPI/Swagger to expect "Authorization: Bearer <token>"
 
 SECRET_KEY = os.getenv("SECRET_KEY", "travel-saas-secret-2024")
 ALGORITHM = "HS256"
@@ -23,8 +42,14 @@ TOKEN_EXPIRE_HOURS = 24
 
 
 def _make_token(user_id: int, agency_id: int) -> str:
+    """
+    Creates a signed JWT token containing the user's ID and agency ID.
+    The token expires after TOKEN_EXPIRE_HOURS hours.
+    The agency_id is embedded so protected routes can enforce tenant isolation
+    without an extra database lookup.
+    """
     payload = {
-        "sub": str(user_id),
+        "sub": str(user_id),    # "sub" is the standard JWT subject claim
         "agency_id": agency_id,
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
@@ -35,7 +60,18 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> models.User:
-    """Dependency that verifies the JWT and returns the authenticated user."""
+    """
+    FastAPI dependency used to protect routes that require authentication.
+    Reads the Bearer token from the Authorization header, decodes and
+    validates it, then fetches and returns the corresponding User row.
+
+    Raises HTTP 401 if:
+      - The token is missing, malformed, or expired
+      - The user_id in the token doesn't match any user in the database
+
+    Usage in a router:
+        current_user: models.User = Depends(get_current_user)
+    """
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
@@ -52,7 +88,11 @@ def get_current_user(
 
 @router.post("/agency", response_model=AgencyResponse, summary="Register a new travel agency (tenant)")
 def create_agency(agency: AgencyCreate, db: Session = Depends(get_db)):
-    """Create a new tenant agency. Each agency is fully isolated."""
+    """
+    Creates a new tenant agency. Each agency gets its own isolated space —
+    its users, bookings, and bundles are not visible to other agencies.
+    Domain must be unique across all agencies.
+    """
     if db.query(models.Agency).filter(models.Agency.domain == agency.domain).first():
         raise HTTPException(status_code=400, detail="Agency domain already registered")
 
@@ -70,12 +110,16 @@ def create_agency(agency: AgencyCreate, db: Session = Depends(get_db)):
 @router.post("/signup", response_model=Token, summary="Register a new user under an agency")
 def signup(user: UserCreate, db: Session = Depends(get_db)):
     """
-    Register a user scoped to a specific agency. Email uniqueness is enforced
-    per-agency so the same email can exist in different tenants.
+    Registers a new user scoped to a specific agency.
+    Email uniqueness is enforced per-agency (not globally), so the same
+    email address can belong to users in different tenants.
+    Returns a JWT token on success so the client is immediately logged in.
     """
+    # Confirm the agency exists before creating the user
     if not db.query(models.Agency).filter(models.Agency.agency_id == user.agency_id).first():
         raise HTTPException(status_code=404, detail="Agency not found")
 
+    # Check email is not already taken within this specific agency
     if db.query(models.User).filter(
         models.User.email == user.email,
         models.User.agency_id == user.agency_id,
@@ -86,7 +130,7 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
         agency_id=user.agency_id,
         name=user.name,
         email=user.email,
-        password_hash=pwd_context.hash(user.password),
+        password_hash=pwd_context.hash(user.password),  # never store plain text passwords
     )
     db.add(db_user)
     db.commit()
@@ -101,11 +145,18 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token, summary="Login and receive JWT")
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    """
+    Authenticates a user under a specific agency and returns a JWT token.
+    Lookup is scoped by both email AND agency_id so users from different
+    tenants with the same email don't collide.
+    """
     user = db.query(models.User).filter(
         models.User.email == credentials.email,
         models.User.agency_id == credentials.agency_id,
     ).first()
 
+    # Use a single error message for both "user not found" and "wrong password"
+    # to avoid leaking whether an email exists in the system
     if not user or not pwd_context.verify(credentials.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
