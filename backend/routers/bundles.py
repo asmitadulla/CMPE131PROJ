@@ -69,9 +69,9 @@ def create_bundle(
 
 @router.get("/", response_model=List[BundleResponse], summary="List bundles for an agency")
 def list_bundles(
-    agency_id: int = Query(..., description="Agency ID to filter bundles by tenant"),
-    includes_theme_park: Optional[bool] = Query(None, description="Filter: theme park bundles only"),
-    available_only: bool = Query(True, description="Only return available (non-sold-out) bundles"),
+    agency_id: int = Query(..., description="Agency ID to filter bundles by tenant", example=4),
+    includes_theme_park: Optional[bool] = Query(None, description="Filter: theme park bundles only", example=True),
+    available_only: Optional[bool] = Query(None, description="Only return available (non-sold-out) bundles", example=True),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -81,6 +81,8 @@ def list_bundles(
     for the Family Vacationist scenario.
     Sold-out bundles are excluded by default (available_only=true).
     """
+    available_only = available_only if available_only is not None else True
+
     query = db.query(models.Bundle).filter(models.Bundle.agency_id == agency_id)
 
     if available_only:
@@ -94,7 +96,7 @@ def list_bundles(
 
 @router.get("/compare", summary="Compare 2-3 bundles side by side")
 def compare_bundles(
-    bundle_ids: str = Query(..., description="Comma-separated bundle IDs to compare (2-3 bundles)"),
+    bundle_ids: str = Query(..., description="Comma-separated bundle IDs to compare (2-3 bundles)", example="1,2"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):

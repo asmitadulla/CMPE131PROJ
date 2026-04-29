@@ -27,11 +27,11 @@ router = APIRouter()
 
 @router.get("/search", summary="Search attractions and theme parks")
 async def search_attractions(
-    city: str = Query(..., description="City to search for attractions"),
-    is_theme_park: Optional[bool] = Query(None, description="Filter: theme parks only (for bundle filtering)"),
-    budget_max: Optional[float] = Query(None, description="Maximum price per person (USD)"),
-    start_date: Optional[str] = Query(None, description="Start of availability window (YYYY-MM-DD). Defaults to today."),
-    end_date: Optional[str] = Query(None, description="End of availability window (YYYY-MM-DD). Defaults to 30 days from today."),
+    city: str = Query(..., description="City to search for attractions", example="Orlando"),
+    is_theme_park: Optional[bool] = Query(None, description="Filter: theme parks only (for bundle filtering)", example=True),
+    budget_max: Optional[float] = Query(None, description="Maximum price per person (USD)", example=200),
+    start_date: Optional[str] = Query(None, description="Start of availability window (YYYY-MM-DD).", example="2026-07-01"),
+    end_date: Optional[str] = Query(None, description="End of availability window (YYYY-MM-DD).", example="2026-07-08"),
     db: Session = Depends(get_db),
 ):
     """

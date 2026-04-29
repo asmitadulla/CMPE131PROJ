@@ -18,7 +18,7 @@
 # Tenant isolation is enforced by filtering queries on both user_id AND agency_id.
 # =============================================================================
 
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Security
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
@@ -136,8 +136,8 @@ def create_booking(
 
 @router.get("/user/{user_id}", response_model=List[BookingResponse], summary="Get user bookings (dashboard)")
 def get_user_bookings(
-    user_id: int,
-    agency_id: int,
+    user_id: int = Path(..., example=1),
+    agency_id: int = Query(..., example=4),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),  # requires valid JWT
 ):

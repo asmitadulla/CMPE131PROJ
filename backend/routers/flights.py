@@ -30,13 +30,13 @@ MAX_PASSENGERS = 9  # Standard airline booking limit per reservation
 
 @router.get("/search", summary="Search flights for multi-passenger families")
 async def search_flights(
-    departure_city: str = Query(..., description="Departure city name"),
-    arrival_city: str = Query(..., description="Arrival/destination city name"),
-    departure_date: str = Query(..., description="Departure date (YYYY-MM-DD)"),
-    return_date: Optional[str] = Query(None, description="Return date for round-trip (YYYY-MM-DD)"),
-    adults: int = Query(2, ge=1, description="Number of adult passengers (min 1)"),
-    children: int = Query(2, ge=0, description="Number of child passengers"),
-    budget_max: Optional[float] = Query(None, description="Maximum total price (USD)"),
+    departure_city: str = Query(..., description="Departure city name", example="San Jose"),
+    arrival_city: str = Query(..., description="Arrival/destination city name", example="Orlando"),
+    departure_date: str = Query(..., description="Departure date (YYYY-MM-DD)", example="2026-07-01"),
+    return_date: Optional[str] = Query(None, description="Return date for round-trip (YYYY-MM-DD)", example="2026-07-08"),
+    adults: Optional[int] = Query(None, description="Number of adult passengers (min 1)", example=2),
+    children: Optional[int] = Query(None, description="Number of child passengers", example=2),
+    budget_max: Optional[float] = Query(None, description="Maximum total price (USD)", example=3000),
     db: Session = Depends(get_db),
 ):
     """
@@ -46,6 +46,9 @@ async def search_flights(
     Include return_date for a round-trip search.
     Default occupancy is 2 adults + 2 children to match the Family Vacationist scenario.
     """
+    adults = adults if adults is not None else 2
+    children = children if children is not None else 2
+
     # --- Input validation ---
 
     if adults < 1:

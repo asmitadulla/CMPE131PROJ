@@ -23,7 +23,17 @@ class AgencyCreate(BaseModel):
     """Fields required to register a new travel agency (tenant)."""
     name: str
     domain: str
-    theme_settings: dict = {}  # optional CSS branding variables
+    theme_settings: dict = {}
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Family Travel Co",
+                "domain": "familytravel.com",
+                "theme_settings": {}
+            }
+        }
+    }
 
 class AgencyResponse(BaseModel):
     """Fields returned after creating or fetching an agency."""
@@ -34,7 +44,7 @@ class AgencyResponse(BaseModel):
     max_passengers: int
     max_bundles_per_user: int
 
-    model_config = {"from_attributes": True}  # allows mapping from SQLAlchemy model
+    model_config = {"from_attributes": True}
 
 
 # =============================================================================
@@ -45,14 +55,35 @@ class UserCreate(BaseModel):
     """Fields required to register a new user under an agency."""
     name: str
     email: str
-    password: str       # plain text — hashed before storage in auth.py
+    password: str
     agency_id: int
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Hannah Smith",
+                "email": "hannah@familytravel.com",
+                "password": "password123",
+                "agency_id": 4
+            }
+        }
+    }
 
 class UserLogin(BaseModel):
     """Fields required to log in. Agency ID scopes the user to a specific tenant."""
     email: str
     password: str
     agency_id: int
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "email": "hannah@familytravel.com",
+                "password": "password123",
+                "agency_id": 4
+            }
+        }
+    }
 
 class UserResponse(BaseModel):
     """Safe user representation — never exposes password_hash."""
@@ -87,11 +118,29 @@ class BookingCreate(BaseModel):
     flight_id: Optional[int] = None
     bundle_id: Optional[int] = None
     total_price: float
-    check_in_date: str   # YYYY-MM-DD
-    check_out_date: str  # YYYY-MM-DD
+    check_in_date: str
+    check_out_date: str
     adults: int = 2
     children: int = 0
-    children_ages: Optional[str] = None  # comma-separated, e.g. "9,16"
+    children_ages: Optional[str] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": 1,
+                "agency_id": 4,
+                "hotel_id": 1,
+                "flight_id": None,
+                "bundle_id": 1,
+                "total_price": 1469.00,
+                "check_in_date": "2026-07-01",
+                "check_out_date": "2026-07-08",
+                "adults": 2,
+                "children": 2,
+                "children_ages": "9,16"
+            }
+        }
+    }
 
 class BookingResponse(BaseModel):
     """Full booking record returned to the client."""
@@ -114,7 +163,13 @@ class BookingResponse(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     """Request body for updating a booking's status."""
-    status: str  # must be one of: Pending, Confirmed, Cancelled
+    status: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"status": "Confirmed"}
+        }
+    }
 
 
 # =============================================================================
@@ -130,8 +185,24 @@ class BundleCreate(BaseModel):
     description: Optional[str] = None
     price: float
     includes_theme_park: bool = False
-    start_date: Optional[str] = None  # earliest valid check-in (YYYY-MM-DD)
-    end_date: Optional[str] = None    # latest valid check-in (YYYY-MM-DD)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "hotel_id": 1,
+                "activity_id": 1,
+                "agency_id": 4,
+                "name": "Orlando Family Bundle — Hotel + Disney Ticket",
+                "description": "4-night stay at Swan Resort with single-day Disney base tickets for the whole family.",
+                "price": 1469.00,
+                "includes_theme_park": True,
+                "start_date": "2026-06-01",
+                "end_date": "2026-08-31"
+            }
+        }
+    }
 
 class BundleResponse(BaseModel):
     """Bundle record returned to the client."""

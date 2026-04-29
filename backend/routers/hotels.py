@@ -42,17 +42,17 @@ LUXURY_BUDGET_FLOOR = 150.0
 
 @router.get("/search", summary="Search family-friendly hotels")
 async def search_hotels(
-    city: str = Query(..., description="Destination city name"),
-    checkin_date: str = Query(..., description="Check-in date (YYYY-MM-DD)"),
-    checkout_date: str = Query(..., description="Check-out date (YYYY-MM-DD)"),
-    adults: int = Query(2, ge=1, description="Number of adult passengers (min 1)"),
-    children: int = Query(2, ge=0, le=8, description="Number of child passengers"),
-    children_ages: str = Query("9,16", description="Comma-separated ages of children"),
-    budget_max: Optional[float] = Query(None, description="Maximum total price (USD)"),
-    has_pool: bool = Query(False, description="Filter: hotel must have a pool"),
-    is_family_friendly: bool = Query(False, description="Filter: family rooms / family-friendly hotels"),
-    star_rating: Optional[int] = Query(None, ge=1, le=5, description="Minimum star rating"),
-    exclude_missing_amenities: bool = Query(False, description="Exclude hotels that have no amenity data"),
+    city: str = Query(..., description="Destination city name", example="Orlando"),
+    checkin_date: str = Query(..., description="Check-in date (YYYY-MM-DD)", example="2026-07-01"),
+    checkout_date: str = Query(..., description="Check-out date (YYYY-MM-DD)", example="2026-07-08"),
+    adults: Optional[int] = Query(None, description="Number of adult passengers (min 1)", example=2),
+    children: Optional[int] = Query(None, description="Number of child passengers", example=2),
+    children_ages: Optional[str] = Query(None, description="Comma-separated ages of children", example="9,16"),
+    budget_max: Optional[float] = Query(None, description="Maximum total price (USD)", example=2000),
+    has_pool: Optional[bool] = Query(None, description="Filter: hotel must have a pool", example=True),
+    is_family_friendly: Optional[bool] = Query(None, description="Filter: family rooms / family-friendly hotels", example=True),
+    star_rating: Optional[int] = Query(None, ge=1, le=5, description="Minimum star rating", example=4),
+    exclude_missing_amenities: Optional[bool] = Query(None, description="Exclude hotels that have no amenity data", example=False),
     db: Session = Depends(get_db),
 ):
     """
@@ -66,6 +66,14 @@ async def search_hotels(
     - Max 3 filters active at once (Phase 1 AC3 limit)
     - Conflicting filter combinations (luxury rating + low budget) are rejected
     """
+    # Apply defaults here so Swagger shows only Example, not Default value
+    adults = adults if adults is not None else 2
+    children = children if children is not None else 2
+    children_ages = children_ages if children_ages is not None else "9,16"
+    has_pool = has_pool if has_pool is not None else False
+    is_family_friendly = is_family_friendly if is_family_friendly is not None else False
+    exclude_missing_amenities = exclude_missing_amenities if exclude_missing_amenities is not None else False
+
     # --- Input validation (Phase 1 Acceptance Criteria) ---
 
     if adults < 1:
