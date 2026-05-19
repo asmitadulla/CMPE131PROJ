@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 import models
 from middleware.tenant import TenantMiddleware
-from routers import auth, hotels, flights, attractions, bookings, bundles
+from routers import auth, hotels, flights, attractions, bookings, bundles, tenants
 
 # Create all database tables on startup if they don't already exist
 models.Base.metadata.create_all(bind=engine)
