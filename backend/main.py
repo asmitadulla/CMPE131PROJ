@@ -53,6 +53,7 @@ app.include_router(flights.router, prefix="/api/v1/flights", tags=["Flights"])
 app.include_router(attractions.router, prefix="/api/v1/attractions", tags=["Attractions"])
 app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["Bookings"])
 app.include_router(bundles.router, prefix="/api/v1/bundles", tags=["Bundles"])
+app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["Tenants"])
 
 
 @app.get("/", tags=["Health"])
