@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 import models
 from middleware.tenant import TenantMiddleware
-from routers import auth, hotels, flights, attractions, bookings, bundles, tenants
+from routers import auth, hotels, flights, attractions, bookings, bundles, tenants, recommendations
 
 # Create all database tables on startup if they don't already exist
 models.Base.metadata.create_all(bind=engine)
@@ -54,6 +54,7 @@ app.include_router(attractions.router, prefix="/api/v1/attractions", tags=["Attr
 app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["Bookings"])
 app.include_router(bundles.router, prefix="/api/v1/bundles", tags=["Bundles"])
 app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["Tenants"])
+app.include_router(recommendations.router, prefix="/api/v1/recommendations", tags=["Recommendations"])
 
 
 @app.get("/", tags=["Health"])
