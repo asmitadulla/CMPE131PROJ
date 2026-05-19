@@ -165,3 +165,11 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
         token_type="bearer",
         user=UserResponse.model_validate(user),
     )
+
+@router.get("/me", response_model=UserResponse, summary="Get current logged-in user")
+def get_me(current_user: models.User = Depends(get_current_user)):
+    """
+    Returns the currently authenticated user based on the JWT token.
+    Used by the frontend to keep the user logged in and load dashboard/tenant info.
+    """
+    return UserResponse.model_validate(current_user)
